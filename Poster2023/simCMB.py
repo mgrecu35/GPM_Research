@@ -8,7 +8,7 @@ import numpy as np
 # tbout = radtran(umu,btemp,lyrtemp,lyrhgt,kext,salb,asym,fisot,emis,ebar,[nlyr])
 #  absair,abswv = gasabsr98(f,tk,rhowv,pa,ireturn)
 from numba import jit
-
+print("simCMB is being imported")
 def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsfc,msflag,dr): # calculates Ka-band reflectivity from attenuated corrected Ku-band reflectivity
     # inputs:
     # binNodes: 2D array of bin nodes that define the snow (0 to 1), mixed phase (1 to 3), and rain (3 to 4)
@@ -21,6 +21,7 @@ def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsf
     ns,nr,nbins=zCorrected.shape[:3]
     zKaSim=np.zeros((ns,nr,nbins),float)-99
     zKuSim=np.zeros((ns,nr,nbins),float)-99
+    zWSim=np.zeros((ns,nr,nbins),float)-99
     zKa_true=np.zeros((ns,nr,nbins),float)-99
     zkaSfc=np.zeros((ns,nr),float)-99
     piaKa2d=np.zeros((ns,nr),float)
@@ -35,20 +36,21 @@ def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsf
     salbtot=np.zeros((ns,nr,nbins),float)
     zms=np.zeros((ns,nr,nbins),float)
     pRate=np.zeros((ns,nr,nbins),float)-99
-    f1=-0.25
+    f1=0.0
     for i in range(zCorrected.shape[0]):
         for j in range(zCorrected.shape[1]):
             if pType[i,j]>0:
                 #print(binNodes[i,j,:])
                 piaKa=0.0
                 piaKu=0.0
+                piaW=0.0
                 attKa=0.0
                 attKu=0.0
                 fh1=np.interp(range(nbins),binNodes[i,j,:],[1,1.0+f1,1+f1,1+f1,1])
                 #print(fh1.shape)
                 #print(fh1)
                 #stop
-                for k in range(binNodes[i,j,0],min(binNodes[i,j,4],binNodes[i,j,1])+1):  # added range limit to avoid out of bounds
+                for k in range(binNodes[i,j,0],min(binNodes[i,j,4],binNodes[i,j,2])+1):  # added range limit to avoid out of bounds
                     #print(dm[i,j,k])
                     if dm[i,j,k]>0:
                         #print(dm[i,j,k]*dm_factor)
@@ -56,18 +58,22 @@ def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsf
                         dnw=(zCorrected[i,j,k]-lkTables.zKuS[ind])/10
                         attKa=lkTables.attKaS[ind]*10**dnw
                         attKu=lkTables.attKuS[ind]*10**dnw
+                        attW=lkTables.attWS[ind]*10**dnw
                         kext1D[i,j,k,:]=lkTables.kextS[ind,:]*10**dnw
                         salb1D[i,j,k,:]=lkTables.salbS[ind,:]
                         asym1D[i,j,k,:]=lkTables.asymS[ind,:]
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
+                        piaW+=attW*dr
                         zKaSim[i,j,k]=10*dnw+lkTables.zKaS[ind]-piaKa
                         zKuSim[i,j,k]=10*dnw+lkTables.zKuS[ind]-piaKu
+                        zWSim[i,j,k]=10*dnw+lkTables.zWS[ind]-piaW
                         zKa_true[i,j,k]=10*dnw+lkTables.zKaS[ind]
                         pRate[i,j,k]=lkTables.snowRate[ind]*10**dnw
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
-                for k in range(binNodes[i,j,1]+1,min(binNodes[i,j,4],binNodes[i,j,3])):  # added range limit to avoid out of bounds
+                        piaW+=attW*dr
+                for k in range(binNodes[i,j,2]+1,min(binNodes[i,j,4],binNodes[i,j,3])):  # added range limit to avoid out of bounds
                     if dm[i,j,k]>0:
                         ind1=bisectm(lkTables.dms.data,253,dm_factor*dm[i,j,k])
                         ind2=bisectm(lkTables.dmr.data,289,dm[i,j,k]*fh1[k])
@@ -75,32 +81,41 @@ def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsf
                         zKuMPH=np.log10(fsnow*10**(0.1*lkTables.zKuS[ind1])+(1-fsnow)*10**(0.1*lkTables.zKuR[ind2]))*10
                         dnw=(zCorrected[i,j,k]-zKuMPH)/10
                         zKaMPH=np.log10(fsnow*10**(0.1*lkTables.zKaS[ind1])+(1-fsnow)*10**(0.1*lkTables.zKaR[ind2]))*10
+                        zWMPH=np.log10(fsnow*10**(0.1*lkTables.zWS[ind1])+(1-fsnow)*10**(0.1*lkTables.zWR[ind2]))*10
                         attKa=fsnow*lkTables.attKaBB[ind1]*10**dnw+(1-fsnow)*lkTables.attKaR[ind2]*10**dnw
                         attKu=fsnow*lkTables.attKuBB[ind1]*10**dnw+(1-fsnow)*lkTables.attKuR[ind2]*10**dnw
+                        attW=fsnow*lkTables.attWS[ind1]*10**dnw+(1-fsnow)*lkTables.attWR[ind2]*10**dnw
                         kext1D[i,j,k,:]=fsnow*lkTables.kextS[ind1,:]*10**dnw+(1-fsnow)*lkTables.kextR[ind2,:]*10**dnw
                         salb1D[i,j,k,:]=fsnow*lkTables.salbS[ind1,:]+(1-fsnow)*lkTables.salbR[ind2,:]
                         asym1D[i,j,k,:]=fsnow*lkTables.asymS[ind1,:]+(1-fsnow)*lkTables.asymR[ind2,:]
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
+                        piaW+=attW*dr
                         zKaSim[i,j,k]=10*dnw+zKaMPH-piaKa
                         zKuSim[i,j,k]=10*dnw+zKuMPH-piaKu
+                        zWSim[i,j,k]=10*dnw+zWMPH-piaW
                         zKa_true[i,j,k]=10*dnw+zKaMPH
                         pRate[i,j,k]=fsnow*lkTables.snowRate[ind1]*10**dnw+(1-fsnow)*lkTables.rainRate[ind2]*10**dnw
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
+                        piaW+=attW*dr
                 for k in range(binNodes[i,j,3],binNodes[i,j,4]):
                     if dm[i,j,k]>0:
-                        ind=bisectm(lkTables.dmr.data,289,dm[i,j,k]*fh1[k])
+                        ind=bisectm(lkTables.dmr.data,289,dm[i,j,k])
                         dnw=(zCorrected[i,j,k]-lkTables.zKuR[ind])/10
                         attKa=lkTables.attKaR[ind]*10**dnw
                         attKu=lkTables.attKuR[ind]*10**dnw
+                        attW=lkTables.attWR[ind]*10**dnw
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
+                        piaW+=attW*dr
                         zKaSim[i,j,k]=10*dnw+lkTables.zKaR[ind]-piaKa
                         zKuSim[i,j,k]=10*dnw+lkTables.zKuR[ind]-piaKu
+                        zWSim[i,j,k]=10*dnw+lkTables.zWR[ind]-piaW
                         zKa_true[i,j,k]=10*dnw+lkTables.zKaR[ind]
                         piaKa+=attKa*dr
                         piaKu+=attKu*dr
+                        piaW+=attW*dr
                         kext1D[i,j,k,:]=lkTables.kextR[ind,:]*10**dnw
                         salb1D[i,j,k,:]=lkTables.salbR[ind,:]
                         asym1D[i,j,k,:]=lkTables.asymR[ind,:]
@@ -122,4 +137,4 @@ def simulateZKa(binNodes,zCorrected,dm,dm_factor,lkTables,pType,kextKa,libSc,bsf
                 #zms = libSc.multiscatterf(kexttot[i,j,:],salbtot[i,j,:],asymtot[i,j,:],\
                 #                          ztrue,dr,noms,alt,theta,freq,nonorm,[nrange])
     return zKaSim,zkaSfc,kexttot,salbtot,asym1D,\
-        zKa_true,zms,piaKa2d,piaKu2d,zKuSim,pRate
+        zKa_true,zms,piaKa2d,piaKu2d,zKuSim,zWSim,pRate
