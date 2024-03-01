@@ -4,7 +4,7 @@ import numpy as np
 import rtlib
 from bisectm import bisectm
 
-def sim_tb(sfcEmiss,skTemp,envNodes,binNodes,pType,pwc,dm,airTemp,press,qv,sfcBin,lookupT):
+def sim_tb(sfcEmiss,skTemp,envNodes,binNodes,pType,pwc,dm,airTemp,press,qv,sfcBin,scorient,lookupT):
     nt=qv.shape[0]
     freqs=[10.65,18.7,23.8,37.0,89.0,166,183.3+3,183.3+7]
     hFreqs=[1,1,2,2,3,4,4,5,5,6,6,7,7]
@@ -120,6 +120,20 @@ def sim_tb(sfcEmiss,skTemp,envNodes,binNodes,pType,pwc,dm,airTemp,press,qv,sfcBi
     fisot=2.7
 
     tb_sim=np.zeros((nt,49,len(hFreqs)))
+    tb_pp_sim=np.zeros((nt,49,len(hFreqs)))
+
+    nFreqsT=8
+    kext1d_u=np.zeros((78,nFreqsT),float)
+    kext1d_d=np.zeros((78,nFreqsT),float)
+    asym1d_u=np.zeros((78,nFreqsT),float)
+    asym1d_d=np.zeros((78,nFreqsT),float)
+    salb1d_u=np.zeros((78,nFreqsT),float)
+    salb1d_d=np.zeros((78,nFreqsT),float)
+    if scorient==0:
+        isign=-1.0
+    else:
+        isign=1.0 
+    tan_inc=np.tan(53/180*np.pi) 
     for i in tqdm.tqdm(range(nt)):
         for j in range(49):
             kext1d_g=kext_gases[i,j,::-1,:]
@@ -128,16 +142,40 @@ def sim_tb(sfcEmiss,skTemp,envNodes,binNodes,pType,pwc,dm,airTemp,press,qv,sfcBi
             salb1d_h=salb3d[i,j,88:9:-1,:]
             temp1d=temp_layer[i,j,::-1]
             tbL=[]
+            tb_ppL=[]
+            for k in range(78):
+                i0u=i+int((k*0.25)*tan_inc*isign/4.5)
+                i0d=i-int((k*0.25)*tan_inc*isign/4.5)
+                i0u=min(nt-1,max(0,i0u))
+                i0d=min(nt-1,max(0,i0d))
+                #i0u=i
+                #i0d=i
+                kext1d_u[k,:]=kext3d[i0u,j,87-k,:]
+                kext1d_d[k,:]=kext3d[i0u,j,87-k,:]
+                asym1d_u[k,:]=asym3d[i0u,j,87-k,:]
+                asym1d_d[k,:]=asym3d[i0d,j,87-k,:]
+                salb1d_u[k,:]=salb3d[i0d,j,87-k,:]
+                salb1d_d[k,:]=salb3d[i0d,j,87-k,:]
             for ic in range(len(hFreqs)):
                 kext1d=kext1d_g[binStart[i,j]:,gFreqs[ic]-1]+kext1d_h[binStart[i,j]:,hFreqs[ic]-1]
                 asym1d=asym1d_h[binStart[i,j]:,hFreqs[ic]-1]*kext1d_h[binStart[i,j]:,hFreqs[ic]-1]/kext1d
-                salb1d=salb1d_h[binStart[i,j]:,hFreqs[ic]-1]        
+                salb1d=salb1d_h[binStart[i,j]:,hFreqs[ic]-1]   
+                kext1d_u1=kext1d_g[binStart[i,j]:,gFreqs[ic]-1]+kext1d_u[binStart[i,j]:,hFreqs[ic]-1]
+                asym1d_u1=asym1d_u[binStart[i,j]:,hFreqs[ic]-1]*kext1d_u[binStart[i,j]:,hFreqs[ic]-1]/kext1d_u1
+                salb1d_u1=salb1d_u[binStart[i,j]:,hFreqs[ic]-1] 
+                kext1d_d1=kext1d_g[binStart[i,j]:,gFreqs[ic]-1]+kext1d_d[binStart[i,j]:,hFreqs[ic]-1]
+                asym1d_d1=asym1d_d[binStart[i,j]:,hFreqs[ic]-1]*kext1d_d[binStart[i,j]:,hFreqs[ic]-1]/kext1d_d1
+                salb1d_d1=salb1d_d[binStart[i,j]:,hFreqs[ic]-1]             
                 temp1d1=temp1d[binStart[i,j]:]
                 nz=kext1d.shape[0]
                 height=np.arange(nz+1)*dz
         #break  
                 tb=rtlib.radtran(umu,skTemp[i,j],temp1d1,height,kext1d,salb1d,asym1d,fisot,sfcEmiss[i,j,ic],sfcEmiss[i,j,ic])
                 tbL.append(tb)
+                ilambert=1
+                tb_pp = rtlib.radtran_pp(umu,skTemp[i,j],temp1d1,height,kext1d_d1,salb1d_d1,asym1d_d1,kext1d_u1,salb1d_u1,asym1d_u1,fisot,sfcEmiss[i,j,ic],sfcEmiss[i,j,ic],ilambert)
+                tb_ppL.append(tb_pp)
             tb_sim[i,j,:]=tbL
+            tb_pp_sim[i,j,:]=tb_ppL
 
-    return tb_sim,iwp,rwp,wvp
+    return tb_sim,tb_pp_sim,iwp,rwp,wvp
